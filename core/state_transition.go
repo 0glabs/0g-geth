@@ -528,15 +528,17 @@ func (st *stateTransition) execute() (*ExecutionResult, error) {
 			peakGasUsed = floorDataGas
 		}
 	}
-	minGasUsed := st.initialGas * 80 / 100
-	if st.gasUsed() < minGasUsed {
-		prev := st.gasRemaining
-		st.gasRemaining = st.initialGas - minGasUsed
-		if t := st.evm.Config.Tracer; t != nil && t.OnGasChange != nil {
-			t.OnGasChange(prev, st.gasRemaining, tracing.GasChangeUnspecified)
+	if st.evm.ChainConfig().IsRestakingActive(st.evm.Context.BlockNumber, st.evm.Context.Time) {
+		minGasUsed := st.initialGas * 80 / 100
+		if st.gasUsed() < minGasUsed {
+			prev := st.gasRemaining
+			st.gasRemaining = st.initialGas - minGasUsed
+			if t := st.evm.Config.Tracer; t != nil && t.OnGasChange != nil {
+				t.OnGasChange(prev, st.gasRemaining, tracing.GasChangeUnspecified)
+			}
 		}
+		st.returnGas()
 	}
-	st.returnGas()
 
 	effectiveTip := msg.GasPrice
 	if rules.IsLondon {
