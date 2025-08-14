@@ -338,23 +338,26 @@ func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction) e
 		// Calculate total gas fee = gasUsed * effectiveGasPrice
 		totalGasFee := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), effectiveGasPrice)
 
+		totalRequired := new(big.Int).Add(totalGasFee, tx.Value())
+
 		// Check if sender has sufficient balance for gas fee
 		senderBalance := env.state.GetBalance(from)
 
 		log.Info("commitTransaction", "senderBalance", senderBalance, "totalGasFee", totalGasFee, "from", from.Hex(),
 			"effectiveGasPrice", effectiveGasPrice, "gasUsed", gasUsed, "env.header.BaseFee", env.header.BaseFee,
-			"tx.GasFeeCap()", tx.GasFeeCap(), "tx.GasTipCap()", tx.GasTipCap())
+			"tx.GasFeeCap()", tx.GasFeeCap(), "tx.GasTipCap()", tx.GasTipCap(), "tx.Value()", tx.Value(),
+			"totalRequired", totalRequired)
 
-		totalGasFeeU256, overflow := uint256.FromBig(totalGasFee)
+		totalRequiredU256, overflow := uint256.FromBig(totalRequired)
 		if overflow {
 			return fmt.Errorf("gas fee calculation overflow: %v", totalGasFee)
 		}
-		if senderBalance.Cmp(totalGasFeeU256) < 0 {
-			return fmt.Errorf("insufficient funds: address %v have %v want %v", from.Hex(), senderBalance, totalGasFeeU256)
+		if senderBalance.Cmp(totalRequiredU256) < 0 {
+			return fmt.Errorf("insufficient funds: address %v have %v want %v", from.Hex(), senderBalance, totalRequiredU256)
 		}
 
 		// Deduct gas fee from sender's balance
-		env.state.SubBalance(from, totalGasFeeU256, tracing.BalanceDecreaseGasBuy)
+		env.state.SubBalance(from, totalRequiredU256, tracing.BalanceDecreaseGasBuy)
 
 		// Create a mock receipt for the transaction without execution
 		receipt := &types.Receipt{
@@ -434,19 +437,20 @@ func (miner *Miner) commitBlobTransaction(env *environment, tx *types.Transactio
 
 		// Calculate total gas fee = gasUsed * effectiveGasPrice
 		totalGasFee := new(big.Int).Mul(new(big.Int).SetUint64(gasUsed), effectiveGasPrice)
+		totalRequired := new(big.Int).Add(totalGasFee, tx.Value())
 
 		// Check if sender has sufficient balance for gas fee
 		senderBalance := env.state.GetBalance(from)
-		totalGasFeeU256, overflow := uint256.FromBig(totalGasFee)
+		totalRequiredU256, overflow := uint256.FromBig(totalRequired)
 		if overflow {
 			return fmt.Errorf("gas fee calculation overflow: %v", totalGasFee)
 		}
-		if senderBalance.Cmp(totalGasFeeU256) < 0 {
-			return fmt.Errorf("insufficient funds: address %v have %v want %v", from.Hex(), senderBalance, totalGasFeeU256)
+		if senderBalance.Cmp(totalRequiredU256) < 0 {
+			return fmt.Errorf("insufficient funds: address %v have %v want %v", from.Hex(), senderBalance, totalRequiredU256)
 		}
 
 		// Deduct gas fee from sender's balance
-		env.state.SubBalance(from, totalGasFeeU256, tracing.BalanceDecreaseGasBuy)
+		env.state.SubBalance(from, totalRequiredU256, tracing.BalanceDecreaseGasBuy)
 
 		// Create a mock receipt for the blob transaction without execution
 		receipt := &types.Receipt{
