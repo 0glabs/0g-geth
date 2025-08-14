@@ -341,7 +341,7 @@ func (miner *Miner) commitTransaction(env *environment, tx *types.Transaction) e
 		// Check if sender has sufficient balance for gas fee
 		senderBalance := env.state.GetBalance(from)
 
-		log.Info("senderBalance", "senderBalance", senderBalance, "totalGasFee", totalGasFee, "from", from.Hex(),
+		log.Info("commitTransaction", "senderBalance", senderBalance, "totalGasFee", totalGasFee, "from", from.Hex(),
 			"effectiveGasPrice", effectiveGasPrice, "gasUsed", gasUsed, "env.header.BaseFee", env.header.BaseFee,
 			"tx.GasFeeCap()", tx.GasFeeCap(), "tx.GasTipCap()", tx.GasTipCap())
 
