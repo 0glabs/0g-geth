@@ -315,6 +315,7 @@ func ProcessConsolidationQueue(requests *[][]byte, evm *vm.EVM) error {
 
 // ProcessStakingDistribution
 func ProcessStakingDistribution(evm *vm.EVM, address common.Address, amount *big.Int) error {
+	return nil
 	if tracer := evm.Config.Tracer; tracer != nil {
 		onSystemCallStart(tracer, evm.GetVMContext())
 		if tracer.OnSystemCallEnd != nil {
@@ -350,6 +351,7 @@ func ProcessStakingDistribution(evm *vm.EVM, address common.Address, amount *big
 }
 
 func ProcessRestakingDistribution(evm *vm.EVM, address common.Address, amount *big.Int) error {
+	return nil
 	evm.StateDB.AddBalance(
 		address,
 		uint256.NewInt(0).SetBytes(amount.Bytes()),
@@ -360,6 +362,7 @@ func ProcessRestakingDistribution(evm *vm.EVM, address common.Address, amount *b
 }
 
 func ProcessBaseInflation(evm *vm.EVM, address common.Address, amount *big.Int) error {
+	return nil
 	evm.StateDB.AddBalance(
 		address,
 		uint256.NewInt(0).SetBytes(amount.Bytes()),

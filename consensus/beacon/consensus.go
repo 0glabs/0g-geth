@@ -19,7 +19,6 @@ package beacon
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -347,9 +346,9 @@ func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.
 	for _, w := range body.Withdrawals {
 		if chain.Config().IsDelegationActive(header.Number, header.Time) {
 			// will skip both native staking and restaking reward distribution withdrawals
-			if w.Validator == math.MaxUint64 {
-				continue
-			}
+			// if w.Validator == math.MaxUint64 {
+			// 	continue
+			// }
 		}
 		// Convert amount from gwei to wei.
 		amount := new(uint256.Int).SetUint64(w.Amount)

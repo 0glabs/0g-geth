@@ -17,6 +17,7 @@
 package miner
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -182,11 +183,15 @@ func (miner *Miner) generateWork(params *generateParams, witness bool) *newPaylo
 		// Directly construct the block without calling FinalizeAndAssemble
 		// This returns a block with the current header, body, and receipts
 		block = types.NewBlock(work.header, &body, work.receipts, trie.NewStackTrie(nil))
+		blockData, _ := json.Marshal(block)
+		log.Info("[DEBUG]generateWork0", "block", string(blockData))
 	} else {
 		block, err = miner.engine.FinalizeAndAssemble(miner.chain, work.header, work.state, &body, work.receipts)
 		if err != nil {
 			return &newPayloadResult{err: err}
 		}
+		blockData, _ := json.Marshal(block)
+		log.Info("[DEBUG]generateWork", "block", string(blockData))
 	}
 
 	return &newPayloadResult{

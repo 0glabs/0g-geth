@@ -17,6 +17,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
@@ -447,6 +448,8 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		if err != nil {
 			panic(err)
 		}
+		blockData, _ := json.Marshal(block)
+		log.Info("[DEBUG]GenerateChain", "block", string(blockData))
 
 		// Write state changes to db
 		root, err := statedb.Commit(b.header.Number.Uint64(), config.IsEIP158(b.header.Number), config.IsCancun(b.header.Number, b.header.Time))
@@ -557,6 +560,8 @@ func GenerateVerkleChain(config *params.ChainConfig, parent *types.Block, engine
 		if err != nil {
 			panic(err)
 		}
+		blockData, _ := json.Marshal(block)
+		log.Info("[DEBUG]GenerateVerkleChain", "block", string(blockData))
 
 		// Write state changes to DB.
 		root, err := statedb.Commit(b.header.Number.Uint64(), config.IsEIP158(b.header.Number), config.IsCancun(b.header.Number, b.header.Time))
