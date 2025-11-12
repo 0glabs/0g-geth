@@ -45,12 +45,12 @@ import (
 const (
 	// txChanSize is the size of channel listening to NewTxsEvent.
 	// The number is referenced from the size of tx pool.
-	txChanSize = 4096
+	txChanSize = 40960
 
 	// txMaxBroadcastSize is the max size of a transaction that will be broadcasted.
 	// All transactions with a higher size will be announced and need to be fetched
 	// by the peer.
-	txMaxBroadcastSize = 4096
+	txMaxBroadcastSize = 40960
 )
 
 var syncChallengeTimeout = 15 * time.Second // Time allowance for a node to reply to the sync progress challenge
@@ -460,33 +460,34 @@ func (h *handler) Stop() {
 	log.Info("Ethereum protocol stopped")
 }
 
-// BroadcastTransactions will propagate a batch of transactions
-// - To a square root of all peers for non-blob transactions
-// - And, separately, as announcements to all peers which are not known to
-// already have the given transaction.
+// BroadcastTransactions will propagate a batch of transactions using hash-based peer selection.
+// Each transaction is forwarded to a single peer selected by hashing the sender address.
+// This approach is similar to IP hash load balancing, ensuring transactions from the same
+// sender are consistently routed to the same peer.
 func (h *handler) BroadcastTransactions(txs types.Transactions) {
 	var (
 		blobTxs  int // Number of blob transactions to announce only
 		largeTxs int // Number of large transactions to announce only
 
-		directCount int // Number of transactions sent directly to peers (duplicates included)
-		annCount    int // Number of transactions announced across all peers (duplicates included)
+		directCount int // Number of transactions sent directly to peers
+		annCount    int // Number of transactions announced across all peers
 
 		txset = make(map[*ethPeer][]common.Hash) // Set peer->hash to transfer directly
 		annos = make(map[*ethPeer][]common.Hash) // Set peer->hash to announce
 	)
-	// Broadcast transactions to a batch of peers not knowing about it
-	direct := big.NewInt(int64(h.peers.len())) // Approximate number of peers to broadcast to
-	if direct.BitLen() == 0 {
-		direct = big.NewInt(1)
+
+	// Get all available peers
+	allPeers := h.peers.allPeers()
+	if len(allPeers) == 0 {
+		return // No peers available
 	}
-	total := new(big.Int).Exp(direct, big.NewInt(2), nil) // Stabilise total peer count a bit based on sqrt peers
 
 	var (
 		signer = types.LatestSigner(h.chain.Config()) // Don't care about chain status, we just need *a* sender
 		hasher = crypto.NewKeccakState()
 		hash   = make([]byte, 32)
 	)
+
 	for _, tx := range txs {
 		var maybeDirect bool
 		switch {
@@ -497,45 +498,79 @@ func (h *handler) BroadcastTransactions(txs types.Transactions) {
 		default:
 			maybeDirect = true
 		}
-		// Send the transaction (if it's small enough) directly to a subset of
-		// the peers that have not received it yet, ensuring that the flow of
-		// transactions is grouped by account to (try and) avoid nonce gaps.
-		//
-		// To do this, we hash the local enode IW with together with a peer's
-		// enode ID together with the transaction sender and broadcast if
-		// `sha(self, peer, sender) mod peers < sqrt(peers)`.
-		for _, peer := range h.peers.peersWithoutTransaction(tx.Hash()) {
-			var broadcast bool
-			if maybeDirect {
-				hasher.Reset()
-				hasher.Write(h.nodeID.Bytes())
-				hasher.Write(peer.Node().ID().Bytes())
 
-				from, _ := types.Sender(signer, tx) // Ignore error, we only use the addr as a propagation target splitter
-				hasher.Write(from.Bytes())
-
-				hasher.Read(hash)
-				if new(big.Int).Mod(new(big.Int).SetBytes(hash), total).Cmp(direct) < 0 {
-					broadcast = true
-				}
-			}
-			if broadcast {
-				txset[peer] = append(txset[peer], tx.Hash())
-			} else {
+		// Use hash-based peer selection: hash the sender address to select a single peer
+		// This ensures transactions from the same sender go to the same peer
+		from, err := types.Sender(signer, tx)
+		if err != nil {
+			// If we can't determine the sender, announce to all peers
+			for _, peer := range h.peers.peersWithoutTransaction(tx.Hash()) {
 				annos[peer] = append(annos[peer], tx.Hash())
+			}
+			continue
+		}
+
+		// Hash the sender address to determine the target peer
+		hasher.Reset()
+		hasher.Write(from.Bytes())
+		hasher.Read(hash)
+
+		// Select peer by hash mod peer count
+		peerIndex := new(big.Int).SetBytes(hash).Mod(new(big.Int).SetBytes(hash), big.NewInt(int64(len(allPeers)))).Uint64()
+		targetPeer := allPeers[peerIndex]
+
+		// Check if target peer already has this transaction
+		if !targetPeer.KnownTransaction(tx.Hash()) {
+			if maybeDirect {
+				// Send transaction directly to the selected peer
+				txset[targetPeer] = append(txset[targetPeer], tx.Hash())
+			} else {
+				// Announce large transactions and blob transactions
+				annos[targetPeer] = append(annos[targetPeer], tx.Hash())
 			}
 		}
 	}
+
+	// Send direct transactions and track per-peer statistics
+	peerStats := make(map[string]map[string]int) // peer ID -> {"direct": count, "announce": count}
+
 	for peer, hashes := range txset {
-		directCount += len(hashes)
+		count := len(hashes)
+		directCount += count
 		peer.AsyncSendTransactions(hashes)
+
+		// Track per-peer statistics
+		peerID := peer.ID()
+		if peerStats[peerID] == nil {
+			peerStats[peerID] = make(map[string]int)
+		}
+		peerStats[peerID]["direct"] = count
 	}
+
+	// Send announcements
 	for peer, hashes := range annos {
-		annCount += len(hashes)
+		count := len(hashes)
+		annCount += count
 		peer.AsyncSendPooledTransactionHashes(hashes)
+
+		// Track per-peer statistics
+		peerID := peer.ID()
+		if peerStats[peerID] == nil {
+			peerStats[peerID] = make(map[string]int)
+		}
+		peerStats[peerID]["announce"] = count
 	}
+
+	// Log summary
 	log.Debug("Distributed transactions", "plaintxs", len(txs)-blobTxs-largeTxs, "blobtxs", blobTxs, "largetxs", largeTxs,
 		"bcastpeers", len(txset), "bcastcount", directCount, "annpeers", len(annos), "anncount", annCount)
+
+	// Log per-peer statistics
+	for peerID, stats := range peerStats {
+		directTxs := stats["direct"]
+		announceTxs := stats["announce"]
+		log.Info("Peer transaction distribution", "peer", peerID[:16], "direct", directTxs, "announce", announceTxs, "total", directTxs+announceTxs)
+	}
 }
 
 // txBroadcastLoop announces new transactions to connected peers.

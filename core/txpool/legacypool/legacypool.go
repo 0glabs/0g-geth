@@ -1323,6 +1323,7 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 		for _, set := range events {
 			txs = append(txs, set.Flatten()...)
 		}
+		log.Info("Sending new transactions to tx feed", "count", len(txs))
 		pool.txFeed.Send(core.NewTxsEvent{Txs: txs})
 	}
 }
